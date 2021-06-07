@@ -98,7 +98,7 @@ typedef struct {
 extern char version[];
 
 typedef struct {
-  char     name[TSDB_DB_NAME_LEN + 1];
+  char     name[TSDB_TABLE_NAME_LEN + 1];
   char     create_time[32];
   int32_t  ntables;
   int32_t  vgroups;  
@@ -136,9 +136,9 @@ typedef struct {
   int32_t   threadIndex;
   int32_t   totalThreads;
   char      dbName[TSDB_TABLE_NAME_LEN + 1];
-  void     *taosCon;
   int64_t   rowsOfDumpOut;
   int64_t   tablesOfDumpOut;
+  void     *taosCon;
 } SThreadParaObj;
 
 typedef struct {
@@ -1321,7 +1321,7 @@ static void taosStartDumpOutWorkThreads(void* taosCon, struct arguments* args, i
     pThread->threadIndex = t;
     pThread->totalThreads = numOfThread;
     tstrncpy(pThread->dbName, dbName, TSDB_TABLE_NAME_LEN);
-    pThread->taosCon = taosCon;        
+    pThread->taosCon = taos_connect(args->host, args->user, args->password, NULL, args->port);        
 
     pthread_attr_init(&thattr);
     pthread_attr_setdetachstate(&thattr, PTHREAD_CREATE_JOINABLE);
@@ -1334,6 +1334,7 @@ static void taosStartDumpOutWorkThreads(void* taosCon, struct arguments* args, i
 
   for (int32_t t = 0; t < numOfThread; ++t) {
     pthread_join(threadObj[t].threadID, NULL);
+    taos_close(threadObj[t].taosCon);
   }
 
   // TODO: sum all thread dump table count and rows of per table, then save into result_output.txt  
@@ -2230,7 +2231,7 @@ static void taosStartDumpInWorkThreads(void* taosCon, struct arguments *args)
     pThread = threadObj + t;
     pThread->threadIndex = t;
     pThread->totalThreads = totalThreads;
-    pThread->taosCon = taosCon;
+    pThread->taosCon = taos_connect(args->host, args->user, args->password, NULL, args->port);;
 
     pthread_attr_init(&thattr);
     pthread_attr_setdetachstate(&thattr, PTHREAD_CREATE_JOINABLE);
@@ -2243,11 +2244,9 @@ static void taosStartDumpInWorkThreads(void* taosCon, struct arguments *args)
 
   for (int t = 0; t < totalThreads; ++t) {
     pthread_join(threadObj[t].threadID, NULL);
-  }
-
-  for (int t = 0; t < totalThreads; ++t) {
     taos_close(threadObj[t].taosCon);
   }
+
   free(threadObj);
 }
 
