@@ -26,6 +26,7 @@ class TDTestCase:
         tdSql.prepare()
         # test case for https://jira.taosdata.com:18080/browse/TD-4584
 
+        #1
         tdLog.info('=============== step1,create stable')
         tdLog.info('create table stb1 (ts timestamp, value double) tags (bin binary(128))') 
         tdSql.execute('create table stb1 (ts timestamp, value double) tags (bin binary(128))')
