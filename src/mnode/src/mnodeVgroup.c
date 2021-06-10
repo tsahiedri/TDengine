@@ -121,7 +121,7 @@ static int32_t mnodeVgroupActionDelete(SSdbRow *pRow) {
   SVgObj *pVgroup = pRow->pObj;
 
   if (pVgroup->pDb == NULL) {
-    mError("vgId:%d, db:%s is not exist while insert into hash", pVgroup->vgId, pVgroup->dbName);
+    mError("vgId:%d, db:%s is not exist while delete from hash", pVgroup->vgId, pVgroup->dbName);
     return TSDB_CODE_MND_VGROUP_NOT_EXIST;
   }
 
@@ -894,9 +894,9 @@ static SCreateVnodeMsg *mnodeBuildVnodeMsg(SVgObj *pVgroup) {
   pCfg->totalBlocks         = htonl(pDb->cfg.totalBlocks);
   pCfg->maxTables           = htonl(maxTables + 1);
   pCfg->daysPerFile         = htonl(pDb->cfg.daysPerFile);
-  pCfg->daysToKeep          = htonl(pDb->cfg.daysToKeep);
-  pCfg->daysToKeep1         = htonl(pDb->cfg.daysToKeep1);
-  pCfg->daysToKeep2         = htonl(pDb->cfg.daysToKeep2);  
+  pCfg->daysToKeep          = htonl(pDb->cfg.daysToKeep2);        //FROM DB TO VNODE MAP:
+  pCfg->daysToKeep1         = htonl(pDb->cfg.daysToKeep0);        //keep0,keep1,keep2 in SQL is mapped to keep1,keep2,keep in vnode
+  pCfg->daysToKeep2         = htonl(pDb->cfg.daysToKeep1);        //user,client,mnode use keep0,keep1,keep2; vnode use keep1,keep2,keep
   pCfg->minRowsPerFileBlock = htonl(pDb->cfg.minRowsPerFileBlock);
   pCfg->maxRowsPerFileBlock = htonl(pDb->cfg.maxRowsPerFileBlock);
   pCfg->fsyncPeriod         = htonl(pDb->cfg.fsyncPeriod);
@@ -1301,4 +1301,31 @@ void mnodeSetVgidVer(int8_t *cver, uint64_t iver) {
   cver[0] = (int8_t)((int32_t)(iver % 1000000) / 10000);
   cver[1] = (int8_t)((int32_t)(iver % 100000) / 100);
   cver[2] = (int8_t)(iver % 100);
+}
+
+int32_t mnodeCompactVgroups() {
+  void *pIter = NULL;
+  SVgObj *pVgroup = NULL;
+
+  mInfo("start to compact vgroups table...");
+
+  while (1) {
+    pIter = mnodeGetNextVgroup(pIter, &pVgroup);
+    if (pVgroup == NULL) break;
+
+    SSdbRow row = {
+      .type     = SDB_OPER_GLOBAL,
+      .pTable   = tsVgroupSdb,
+      .pObj     = pVgroup,
+      .rowSize  = sizeof(SVgObj),
+    };
+
+    mInfo("compact vgroups %d", pVgroup->vgId);
+    
+    sdbInsertCompactRow(&row);
+  }
+
+  mInfo("end to compact vgroups table...");
+
+  return 0; 
 }
