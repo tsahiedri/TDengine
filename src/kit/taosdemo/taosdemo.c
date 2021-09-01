@@ -622,7 +622,9 @@ SArguments g_args = {
     false,           // answer_yes;
     "./output.txt",  // output_file
     0,               // mode : sync or async
-    {0},
+    {TSDB_DATA_TYPE_FLOAT,
+    TSDB_DATA_TYPE_INT,
+    TSDB_DATA_TYPE_FLOAT},
     {
         "FLOAT",         // dataType
         "INT",           // dataType
@@ -1557,24 +1559,26 @@ static void parse_args(int argc, char *argv[], SArguments *arguments) {
                 arguments->dataType[0] = dataType;
                 if (0 == strcasecmp(dataType, "INT")) {
                     arguments->data_type[0] = TSDB_DATA_TYPE_INT;
-                } else if (0 == strcasecmp(dataType, "FLOAT")) {
-                    arguments->data_type[0] = TSDB_DATA_TYPE_FLOAT;
                 } else if (0 == strcasecmp(dataType, "TINYINT")) {
                     arguments->data_type[0] = TSDB_DATA_TYPE_TINYINT;
-                } else if (0 == strcasecmp(dataType, "BOOL")) {
-                    arguments->data_type[0] = TSDB_DATA_TYPE_BOOL;
                 } else if (0 == strcasecmp(dataType, "SMALLINT")) {
                     arguments->data_type[0] = TSDB_DATA_TYPE_SMALLINT;
                 } else if (0 == strcasecmp(dataType, "BIGINT")) {
                     arguments->data_type[0] = TSDB_DATA_TYPE_BIGINT;
+                } else if (0 == strcasecmp(dataType, "FLOAT")) {
+                    arguments->data_type[0] = TSDB_DATA_TYPE_FLOAT;
                 } else if (0 == strcasecmp(dataType, "DOUBLE")) {
                     arguments->data_type[0] = TSDB_DATA_TYPE_DOUBLE;
                 } else if (0 == strcasecmp(dataType, "BINARY")) {
                     arguments->data_type[0] = TSDB_DATA_TYPE_BINARY;
-                } else if (0 == strcasecmp(dataType, "TIMESTAMP")) {
-                    arguments->data_type[0] = TSDB_DATA_TYPE_TIMESTAMP;
                 } else if (0 == strcasecmp(dataType, "NCHAR")) {
                     arguments->data_type[0] = TSDB_DATA_TYPE_NCHAR;
+                } else if (0 == strcasecmp(dataType, "BOOL")) {
+                    arguments->data_type[0] = TSDB_DATA_TYPE_BOOL;
+                } else if (0 == strcasecmp(dataType, "TIMESTAMP")) {
+                    arguments->data_type[0] = TSDB_DATA_TYPE_TIMESTAMP;
+                } else {
+                    arguments->data_type[0] = TSDB_DATA_TYPE_NULL;
                 }
                 arguments->dataType[1] = NULL;
                 arguments->data_type[1] = TSDB_DATA_TYPE_NULL;
@@ -1604,23 +1608,25 @@ static void parse_args(int argc, char *argv[], SArguments *arguments) {
                     if (0 == strcasecmp(token, "INT")) {
                         arguments->data_type[index] = TSDB_DATA_TYPE_INT;
                     } else if (0 == strcasecmp(token, "FLOAT")) {
-                        arguments->data_type[index] = TSDB_DATA_TYPE_FLOAT;
-                    } else if (0 == strcasecmp(token, "TINYINT")) {
                         arguments->data_type[index] = TSDB_DATA_TYPE_TINYINT;
-                    } else if (0 == strcasecmp(token, "BOOL")) {
-                        arguments->data_type[index] = TSDB_DATA_TYPE_BOOL;
                     } else if (0 == strcasecmp(token, "SMALLINT")) {
                         arguments->data_type[index] = TSDB_DATA_TYPE_SMALLINT;
                     } else if (0 == strcasecmp(token, "BIGINT")) {
                         arguments->data_type[index] = TSDB_DATA_TYPE_BIGINT;
                     } else if (0 == strcasecmp(token, "DOUBLE")) {
+                        arguments->data_type[index] = TSDB_DATA_TYPE_FLOAT;
+                    } else if (0 == strcasecmp(token, "TINYINT")) {
                         arguments->data_type[index] = TSDB_DATA_TYPE_DOUBLE;
                     } else if (0 == strcasecmp(token, "BINARY")) {
                         arguments->data_type[index] = TSDB_DATA_TYPE_BINARY;
-                    } else if (0 == strcasecmp(token, "TIMESTAMP")) {
-                        arguments->data_type[index] = TSDB_DATA_TYPE_TIMESTAMP;
                     } else if (0 == strcasecmp(token, "NCHAR")) {
                         arguments->data_type[index] = TSDB_DATA_TYPE_NCHAR;
+                    } else if (0 == strcasecmp(token, "BOOL")) {
+                        arguments->data_type[index] = TSDB_DATA_TYPE_BOOL;
+                    } else if (0 == strcasecmp(token, "TIMESTAMP")) {
+                        arguments->data_type[index] = TSDB_DATA_TYPE_TIMESTAMP;
+                    } else {
+                        arguments->data_type[index] = TSDB_DATA_TYPE_NULL;
                     }
                     arguments->dataType[index] = token;
                     index ++;
@@ -1970,27 +1976,15 @@ static void tmfree(char *buf) {
 }
 
 static int queryDbExec(TAOS *taos, char *command, QUERY_TYPE type, bool quiet) {
-    int i;
-    TAOS_RES *res = NULL;
-    int32_t   code = -1;
-
-    for (i = 0; i < 5 /* retry */; i++) {
-        if (NULL != res) {
-            taos_free_result(res);
-            res = NULL;
-        }
-
-        res = taos_query(taos, command);
-        code = taos_errno(res);
-        if (0 == code) {
-            break;
-        }
-    }
 
     verbosePrint("%s() LN%d - command: %s\n", __func__, __LINE__, command);
+
+    TAOS_RES *res = taos_query(taos, command);
+    int32_t code = taos_errno(res);
+
     if (code != 0) {
         if (!quiet) {
-            errorPrint2("Failed to execute %s, reason: %s\n",
+            errorPrint2("Failed to execute <%s>, reason: %s\n",
                     command, taos_errstr(res));
         }
         taos_free_result(res);
@@ -3604,6 +3598,39 @@ static int getSuperTableFromServer(TAOS * taos, char* dbName,
                     (char *)row[TSDB_DESCRIBE_METRIC_TYPE_INDEX],
                     min(DATATYPE_BUFF_LEN,
                         fields[TSDB_DESCRIBE_METRIC_TYPE_INDEX].bytes) + 1);
+            if (0 == strncasecmp(superTbls->tags[tagIndex].dataType,
+                        "INT", strlen("INT"))) {
+                superTbls->tags[tagIndex].data_type = TSDB_DATA_TYPE_INT;
+            } else if (0 == strncasecmp(superTbls->tags[tagIndex].dataType,
+                        "TINYINT", strlen("TINYINT"))) {
+                superTbls->tags[tagIndex].data_type = TSDB_DATA_TYPE_TINYINT;
+            } else if (0 == strncasecmp(superTbls->tags[tagIndex].dataType,
+                        "SMALLINT", strlen("SMALLINT"))) {
+                superTbls->tags[tagIndex].data_type = TSDB_DATA_TYPE_SMALLINT;
+            } else if (0 == strncasecmp(superTbls->tags[tagIndex].dataType,
+                        "BIGINT", strlen("BIGINT"))) {
+                superTbls->tags[tagIndex].data_type = TSDB_DATA_TYPE_BIGINT;
+            } else if (0 == strncasecmp(superTbls->tags[tagIndex].dataType,
+                        "FLOAT", strlen("FLOAT"))) {
+                superTbls->tags[tagIndex].data_type = TSDB_DATA_TYPE_FLOAT;
+            } else if (0 == strncasecmp(superTbls->tags[tagIndex].dataType,
+                        "DOUBLE", strlen("DOUBLE"))) {
+                superTbls->tags[tagIndex].data_type = TSDB_DATA_TYPE_DOUBLE;
+            } else if (0 == strncasecmp(superTbls->tags[tagIndex].dataType,
+                        "BINARY", strlen("BINARY"))) {
+                superTbls->tags[tagIndex].data_type = TSDB_DATA_TYPE_BINARY;
+            } else if (0 == strncasecmp(superTbls->tags[tagIndex].dataType,
+                        "NCHAR", strlen("NCHAR"))) {
+                superTbls->tags[tagIndex].data_type = TSDB_DATA_TYPE_NCHAR;
+            } else if (0 == strncasecmp(superTbls->tags[tagIndex].dataType,
+                        "BOOL", strlen("BOOL"))) {
+                superTbls->tags[tagIndex].data_type = TSDB_DATA_TYPE_BOOL;
+            } else if (0 == strncasecmp(superTbls->tags[tagIndex].dataType,
+                        "TIMESTAMP", strlen("TIMESTAMP"))) {
+                superTbls->tags[tagIndex].data_type = TSDB_DATA_TYPE_TIMESTAMP;
+            } else {
+                superTbls->tags[tagIndex].data_type = TSDB_DATA_TYPE_NULL;
+            }
             superTbls->tags[tagIndex].dataLen =
                 *((int *)row[TSDB_DESCRIBE_METRIC_LENGTH_INDEX]);
             tstrncpy(superTbls->tags[tagIndex].note,
@@ -3615,16 +3642,51 @@ static int getSuperTableFromServer(TAOS * taos, char* dbName,
             tstrncpy(superTbls->columns[columnIndex].field,
                     (char *)row[TSDB_DESCRIBE_METRIC_FIELD_INDEX],
                     fields[TSDB_DESCRIBE_METRIC_FIELD_INDEX].bytes);
+
             tstrncpy(superTbls->columns[columnIndex].dataType,
                     (char *)row[TSDB_DESCRIBE_METRIC_TYPE_INDEX],
                     min(DATATYPE_BUFF_LEN,
                         fields[TSDB_DESCRIBE_METRIC_TYPE_INDEX].bytes) + 1);
+            if (0 == strncasecmp(superTbls->columns[columnIndex].dataType,
+                        "INT", strlen("INT"))) {
+                superTbls->columns[columnIndex].data_type = TSDB_DATA_TYPE_INT;
+            } else if (0 == strncasecmp(superTbls->columns[columnIndex].dataType,
+                        "TINYINT", strlen("TINYINT"))) {
+                superTbls->columns[columnIndex].data_type = TSDB_DATA_TYPE_TINYINT;
+            } else if (0 == strncasecmp(superTbls->columns[columnIndex].dataType,
+                        "SMALLINT", strlen("SMALLINT"))) {
+                superTbls->columns[columnIndex].data_type = TSDB_DATA_TYPE_SMALLINT;
+            } else if (0 == strncasecmp(superTbls->columns[columnIndex].dataType,
+                        "BIGINT", strlen("BIGINT"))) {
+                superTbls->columns[columnIndex].data_type = TSDB_DATA_TYPE_BIGINT;
+            } else if (0 == strncasecmp(superTbls->columns[columnIndex].dataType,
+                        "FLOAT", strlen("FLOAT"))) {
+                superTbls->columns[columnIndex].data_type = TSDB_DATA_TYPE_FLOAT;
+            } else if (0 == strncasecmp(superTbls->columns[columnIndex].dataType,
+                        "DOUBLE", strlen("DOUBLE"))) {
+                superTbls->columns[columnIndex].data_type = TSDB_DATA_TYPE_DOUBLE;
+            } else if (0 == strncasecmp(superTbls->columns[columnIndex].dataType,
+                        "BINARY", strlen("BINARY"))) {
+                superTbls->columns[columnIndex].data_type = TSDB_DATA_TYPE_BINARY;
+            } else if (0 == strncasecmp(superTbls->columns[columnIndex].dataType,
+                        "NCHAR", strlen("NCHAR"))) {
+                superTbls->columns[columnIndex].data_type = TSDB_DATA_TYPE_NCHAR;
+            } else if (0 == strncasecmp(superTbls->columns[columnIndex].dataType,
+                        "BOOL", strlen("BOOL"))) {
+                superTbls->columns[columnIndex].data_type = TSDB_DATA_TYPE_BOOL;
+            } else if (0 == strncasecmp(superTbls->columns[columnIndex].dataType,
+                        "TIMESTAMP", strlen("TIMESTAMP"))) {
+                superTbls->columns[columnIndex].data_type = TSDB_DATA_TYPE_TIMESTAMP;
+            } else {
+                superTbls->columns[columnIndex].data_type = TSDB_DATA_TYPE_NULL;
+            }
             superTbls->columns[columnIndex].dataLen =
                 *((int *)row[TSDB_DESCRIBE_METRIC_LENGTH_INDEX]);
             tstrncpy(superTbls->columns[columnIndex].note,
                     (char *)row[TSDB_DESCRIBE_METRIC_NOTE_INDEX],
                     min(NOTE_BUFF_LEN,
                         fields[TSDB_DESCRIBE_METRIC_NOTE_INDEX].bytes) + 1);
+
             columnIndex++;
         }
         count++;
@@ -4434,6 +4496,7 @@ static bool getColumnAndTagTypeFromInsertJsonFile(
             tstrncpy(superTbls->columns[index].dataType,
                     columnCase.dataType,
                     min(DATATYPE_BUFF_LEN, strlen(columnCase.dataType) + 1));
+
             superTbls->columns[index].dataLen = columnCase.dataLen;
             index++;
         }
@@ -4446,6 +4509,42 @@ static bool getColumnAndTagTypeFromInsertJsonFile(
     }
 
     superTbls->columnCount = index;
+
+    for (int c = 0; c < superTbls->columnCount; c++) {
+        if (0 == strncasecmp(superTbls->columns[c].dataType,
+                    "INT", strlen("INT"))) {
+            superTbls->columns[c].data_type = TSDB_DATA_TYPE_INT;
+        } else if (0 == strncasecmp(superTbls->columns[c].dataType,
+                    "TINYINT", strlen("TINYINT"))) {
+            superTbls->columns[c].data_type = TSDB_DATA_TYPE_TINYINT;
+        } else if (0 == strncasecmp(superTbls->columns[c].dataType,
+                    "SMALLINT", strlen("SMALLINT"))) {
+            superTbls->columns[c].data_type = TSDB_DATA_TYPE_SMALLINT;
+        } else if (0 == strncasecmp(superTbls->columns[c].dataType,
+                    "BIGINT", strlen("BIGINT"))) {
+            superTbls->columns[c].data_type = TSDB_DATA_TYPE_BIGINT;
+        } else if (0 == strncasecmp(superTbls->columns[c].dataType,
+                    "FLOAT", strlen("FLOAT"))) {
+            superTbls->columns[c].data_type = TSDB_DATA_TYPE_FLOAT;
+        } else if (0 == strncasecmp(superTbls->columns[c].dataType,
+                    "DOUBLE", strlen("DOUBLE"))) {
+            superTbls->columns[c].data_type = TSDB_DATA_TYPE_DOUBLE;
+        } else if (0 == strncasecmp(superTbls->columns[c].dataType,
+                    "BINARY", strlen("BINARY"))) {
+            superTbls->columns[c].data_type = TSDB_DATA_TYPE_BINARY;
+        } else if (0 == strncasecmp(superTbls->columns[c].dataType,
+                    "NCHAR", strlen("NCHAR"))) {
+            superTbls->columns[c].data_type = TSDB_DATA_TYPE_NCHAR;
+        } else if (0 == strncasecmp(superTbls->columns[c].dataType,
+                    "BOOL", strlen("BOOL"))) {
+            superTbls->columns[c].data_type = TSDB_DATA_TYPE_BOOL;
+        } else if (0 == strncasecmp(superTbls->columns[c].dataType,
+                    "TIMESTAMP", strlen("TIMESTAMP"))) {
+            superTbls->columns[c].data_type = TSDB_DATA_TYPE_TIMESTAMP;
+        } else {
+            superTbls->columns[c].data_type = TSDB_DATA_TYPE_NULL;
+        }
+    }
 
     count = 1;
     index = 0;
@@ -4515,6 +4614,42 @@ static bool getColumnAndTagTypeFromInsertJsonFile(
     }
 
     superTbls->tagCount = index;
+
+    for (int t = 0; t < superTbls->tagCount; t++) {
+        if (0 == strncasecmp(superTbls->tags[t].dataType,
+                    "INT", strlen("INT"))) {
+            superTbls->tags[t].data_type = TSDB_DATA_TYPE_INT;
+        } else if (0 == strncasecmp(superTbls->tags[t].dataType,
+                    "TINYINT", strlen("TINYINT"))) {
+            superTbls->tags[t].data_type = TSDB_DATA_TYPE_TINYINT;
+        } else if (0 == strncasecmp(superTbls->tags[t].dataType,
+                    "SMALLINT", strlen("SMALLINT"))) {
+            superTbls->tags[t].data_type = TSDB_DATA_TYPE_SMALLINT;
+        } else if (0 == strncasecmp(superTbls->tags[t].dataType,
+                    "BIGINT", strlen("BIGINT"))) {
+            superTbls->tags[t].data_type = TSDB_DATA_TYPE_BIGINT;
+        } else if (0 == strncasecmp(superTbls->tags[t].dataType,
+                    "FLOAT", strlen("FLOAT"))) {
+            superTbls->tags[t].data_type = TSDB_DATA_TYPE_FLOAT;
+        } else if (0 == strncasecmp(superTbls->tags[t].dataType,
+                    "DOUBLE", strlen("DOUBLE"))) {
+            superTbls->tags[t].data_type = TSDB_DATA_TYPE_DOUBLE;
+        } else if (0 == strncasecmp(superTbls->tags[t].dataType,
+                    "BINARY", strlen("BINARY"))) {
+            superTbls->tags[t].data_type = TSDB_DATA_TYPE_BINARY;
+        } else if (0 == strncasecmp(superTbls->tags[t].dataType,
+                    "NCHAR", strlen("NCHAR"))) {
+            superTbls->tags[t].data_type = TSDB_DATA_TYPE_NCHAR;
+        } else if (0 == strncasecmp(superTbls->tags[t].dataType,
+                    "BOOL", strlen("BOOL"))) {
+            superTbls->tags[t].data_type = TSDB_DATA_TYPE_BOOL;
+        } else if (0 == strncasecmp(superTbls->tags[t].dataType,
+                    "TIMESTAMP", strlen("TIMESTAMP"))) {
+            superTbls->tags[t].data_type = TSDB_DATA_TYPE_TIMESTAMP;
+        } else {
+            superTbls->tags[t].data_type = TSDB_DATA_TYPE_NULL;
+        }
+    }
 
     if ((superTbls->columnCount + superTbls->tagCount + 1 /* ts */) > TSDB_MAX_COLUMNS) {
         errorPrint("columns + tags is more than allowed max columns count: %d\n",
@@ -5860,9 +5995,12 @@ static int64_t generateStbRowData(
     int tmpLen;
 
     dataLen += snprintf(pstr + dataLen, maxLen - dataLen,
-            "(%" PRId64 ",", timestamp);
+            "(%" PRId64 "", timestamp);
 
     for (int i = 0; i < stbInfo->columnCount; i++) {
+        tstrncpy(pstr + dataLen, ",", 2);
+        dataLen += 1;
+
         if ((stbInfo->columns[i].data_type == TSDB_DATA_TYPE_BINARY)
                 || (stbInfo->columns[i].data_type == TSDB_DATA_TYPE_NCHAR)) {
             if (stbInfo->columns[i].dataLen > TSDB_MAX_BINARY_LEN) {
@@ -5882,12 +6020,11 @@ static int64_t generateStbRowData(
                 return -1;
             }
             rand_string(buf, stbInfo->columns[i].dataLen);
-            dataLen += snprintf(pstr + dataLen, maxLen - dataLen, "\'%s\',", buf);
+            dataLen += snprintf(pstr + dataLen, maxLen - dataLen, "\'%s\'", buf);
             tmfree(buf);
 
         } else {
-            char *tmp;
-
+            char *tmp = NULL;
             switch(stbInfo->columns[i].data_type) {
                 case TSDB_DATA_TYPE_INT:
                     if ((g_args.demo_mode) && (i == 1)) {
@@ -5958,17 +6095,16 @@ static int64_t generateStbRowData(
                     return -1;
             }
 
-
-            dataLen += strlen(tmp);
-            tstrncpy(pstr + dataLen, ",", 2);
-            dataLen += 1;
+            if (tmp) {
+                dataLen += strlen(tmp);
+            }
         }
 
         if (dataLen > (remainderBufLen - (128)))
             return 0;
     }
 
-    tstrncpy(pstr + dataLen - 1, ")", 2);
+    tstrncpy(pstr + dataLen, ")", 2);
 
     verbosePrint("%s() LN%d, dataLen:%"PRId64"\n", __func__, __LINE__, dataLen);
     verbosePrint("%s() LN%d, recBuf:\n\t%s\n", __func__, __LINE__, recBuf);
@@ -6044,6 +6180,9 @@ static int64_t generateData(char *recBuf, char *data_type,
                 pstr += sprintf(pstr, ",\"%s\"", s);
                 free(s);
                 break;
+
+            case TSDB_DATA_TYPE_NULL:
+                break;
         }
 
         if (strlen(recBuf) > MAX_DATA_SIZE) {
@@ -6075,55 +6214,69 @@ static int generateSampleMemoryFromRand(SSuperTable *stbInfo)
         memset(buff, 0, stbInfo->lenOfOneRow);
 
         for (int c = 0; c < stbInfo->columnCount; c++) {
-            char *tmp;
-            if (0 == strncasecmp(stbInfo->columns[c].dataType,
-                        "BINARY", strlen("BINARY"))) {
-                rand_string(data, stbInfo->columns[c].dataLen);
-                pos += sprintf(buff + pos, "%s,", data);
-            } else if (0 == strncasecmp(stbInfo->columns[c].dataType,
-                        "NCHAR", strlen("NCHAR"))) {
-                rand_string(data, stbInfo->columns[c].dataLen);
-                pos += sprintf(buff + pos, "%s,", data);
-            } else if (0 == strncasecmp(stbInfo->columns[c].dataType,
-                        "INT", strlen("INT"))) {
-                if ((g_args.demo_mode) && (c == 1)) {
-                    tmp = demo_voltage_int_str();
-                } else {
-                    tmp = rand_int_str();
-                }
-                pos += sprintf(buff + pos, "%s,", tmp);
-            } else if (0 == strncasecmp(stbInfo->columns[c].dataType,
-                        "BIGINT", strlen("BIGINT"))) {
-                pos += sprintf(buff + pos, "%s,", rand_bigint_str());
-            } else if (0 == strncasecmp(stbInfo->columns[c].dataType,
-                        "FLOAT", strlen("FLOAT"))) {
-                if (g_args.demo_mode) {
-                    if (c == 0) {
-                        tmp = demo_current_float_str();
+            char *tmp = NULL;
+            switch(stbInfo->columns[c].data_type) {
+                case TSDB_DATA_TYPE_BINARY:
+                    rand_string(data, stbInfo->columns[c].dataLen);
+                    pos += sprintf(buff + pos, "%s,", data);
+                    break;
+
+                case TSDB_DATA_TYPE_NCHAR:
+                    rand_string(data, stbInfo->columns[c].dataLen);
+                    pos += sprintf(buff + pos, "%s,", data);
+                    break;
+
+                case TSDB_DATA_TYPE_INT:
+                    if ((g_args.demo_mode) && (c == 1)) {
+                        tmp = demo_voltage_int_str();
                     } else {
-                        tmp = demo_phase_float_str();
+                        tmp = rand_int_str();
                     }
-                } else {
-                    tmp = rand_float_str();
-                }
-                pos += sprintf(buff + pos, "%s,", tmp);
-            } else if (0 == strncasecmp(stbInfo->columns[c].dataType,
-                        "DOUBLE", strlen("DOUBLE"))) {
-                pos += sprintf(buff + pos, "%s,", rand_double_str());
-            } else if (0 == strncasecmp(stbInfo->columns[c].dataType,
-                        "SMALLINT", strlen("SMALLINT"))) {
-                pos += sprintf(buff + pos, "%s,", rand_smallint_str());
-            } else if (0 == strncasecmp(stbInfo->columns[c].dataType,
-                        "TINYINT", strlen("TINYINT"))) {
-                pos += sprintf(buff + pos, "%s,", rand_tinyint_str());
-            } else if (0 == strncasecmp(stbInfo->columns[c].dataType,
-                        "BOOL", strlen("BOOL"))) {
-                pos += sprintf(buff + pos, "%s,", rand_bool_str());
-            } else if (0 == strncasecmp(stbInfo->columns[c].dataType,
-                        "TIMESTAMP", strlen("TIMESTAMP"))) {
-                pos += sprintf(buff + pos, "%s,", rand_bigint_str());
+                    pos += sprintf(buff + pos, "%s,", tmp);
+                    break;
+
+                case TSDB_DATA_TYPE_BIGINT:
+                    pos += sprintf(buff + pos, "%s,", rand_bigint_str());
+                    break;
+
+                case TSDB_DATA_TYPE_FLOAT:
+                    if (g_args.demo_mode) {
+                        if (c == 0) {
+                            tmp = demo_current_float_str();
+                        } else {
+                            tmp = demo_phase_float_str();
+                        }
+                    } else {
+                        tmp = rand_float_str();
+                    }
+                    pos += sprintf(buff + pos, "%s,", tmp);
+                    break;
+
+                case TSDB_DATA_TYPE_DOUBLE:
+                    pos += sprintf(buff + pos, "%s,", rand_double_str());
+                    break;
+
+                case TSDB_DATA_TYPE_SMALLINT:
+                    pos += sprintf(buff + pos, "%s,", rand_smallint_str());
+                    break;
+
+                case TSDB_DATA_TYPE_TINYINT:
+                    pos += sprintf(buff + pos, "%s,", rand_tinyint_str());
+                    break;
+
+                case TSDB_DATA_TYPE_BOOL:
+                    pos += sprintf(buff + pos, "%s,", rand_bool_str());
+                    break;
+
+                case TSDB_DATA_TYPE_TIMESTAMP:
+                    pos += sprintf(buff + pos, "%s,", rand_bigint_str());
+                    break;
+
+                case TSDB_DATA_TYPE_NULL:
+                    break;
             }
         }
+
         *(buff + pos - 1) = 0;
         memcpy(stbInfo->sampleDataBuf + i * stbInfo->lenOfOneRow, buff, pos);
     }
@@ -8408,6 +8561,12 @@ static void startMultiThreadInsertData(int threads, char* db_name,
                     || ((stbInfo->childTblOffset
                             + stbInfo->childTblLimit)
                         > (stbInfo->childTblCount))) {
+
+                if (stbInfo->childTblCount < stbInfo->childTblOffset) {
+                    printf("WARNING: offset will not be used since the child tables count is less then offset!\n");
+
+                    stbInfo->childTblOffset = 0;
+                }
                 stbInfo->childTblLimit =
                     stbInfo->childTblCount - stbInfo->childTblOffset;
             }
